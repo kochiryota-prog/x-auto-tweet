@@ -6,11 +6,13 @@ import os
 import requests
 import tempfile
 from datetime import timedelta, timezone
+
 # 環境変数から取得
 API_KEY = os.environ.get('X_API_KEY')
 API_SECRET = os.environ.get('X_API_SECRET')
 ACCESS_TOKEN = os.environ.get('X_ACCESS_TOKEN')
 ACCESS_SECRET = os.environ.get('X_ACCESS_SECRET')
+
 # X API認証
 try:
     auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
@@ -24,8 +26,10 @@ try:
 except Exception as e:
     print(f"認証エラー: {e}")
     print("APIキーが正しく設定されているか確認してください。")
+
 # Google Sheets認証
 SHEET_URL = 'https://docs.google.com/spreadsheets/d/1XVucwTYjGeZOsqMSS1o6vm10XZ0wOBOH-TQIUFgpSHE/edit?gid=1702486208#gid=1702486208'
+
 def get_sheet_data():
     """Google Sheetsからデータ取得（公開シート）"""
     try:
@@ -59,6 +63,7 @@ def get_sheet_data():
     except Exception as e:
         print(f"シート取得エラー: {e}")
         return []
+
 def should_post(scheduled_time_str):
     """投稿時刻かどうか判定"""
     try:
@@ -69,6 +74,7 @@ def should_post(scheduled_time_str):
             scheduled = datetime.strptime(scheduled_time_str, '%Y-%m-%d %H:%M')
         except ValueError:
              scheduled = datetime.strptime(scheduled_time_str, '%Y/%m/%d %H:%M')
+
         # JSTに変換 (UTC+9)
         JST = timezone(timedelta(hours=9))
         now = datetime.now(JST)
@@ -89,6 +95,7 @@ def should_post(scheduled_time_str):
             
     except Exception as e:
         return False
+
 def download_image(url):
     if not url or url.strip() == '': return None
     try:
@@ -104,10 +111,12 @@ def download_image(url):
         return temp_file.name
     except Exception:
         return None
+
 def post_tweet():
     print("🔍 投稿チェック開始 (JST対応版)...")
     data = get_sheet_data()
     if not data: return
+
     for row in data:
         if row['posted'].strip().lower() != 'yes' and should_post(row['date']):
             try:
@@ -135,40 +144,6 @@ def post_tweet():
                 print(f"❌ 投稿エラー: {e}")
     
     print("⏰ 投稿条件に一致する行はありませんでした")
+
 if __name__ == "__main__":
     post_tweet()
-2. .github/workflows/auto-tweet.yml の修正
-同じくえんぴつアイコンから編集して、中身を書き換えます。 （チェック間隔を30分に短縮しました）
-
-name: X Auto Tweet
-on:
-  schedule:
-    # 30分おきに実行 (UTC表記ですがJSTで30分おきに動作します)
-    - cron: '*/30 * * * *'
-  
-  workflow_dispatch:
-jobs:
-  tweet:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-    
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
-    
-    - name: Run tweet bot
-      env:
-        X_API_KEY: ${{ secrets.X_API_KEY }}
-        X_API_SECRET: ${{ secrets.X_API_SECRET }}
-        X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
-        X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
-      run: |
-        python auto_tweet.py
