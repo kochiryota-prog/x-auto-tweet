@@ -6,13 +6,31 @@ import os
 import requests
 import tempfile
 from datetime import timedelta, timezone
-
+import json
 # 環境変数から取得
 API_KEY = os.environ.get('X_API_KEY')
 API_SECRET = os.environ.get('X_API_SECRET')
 ACCESS_TOKEN = os.environ.get('X_ACCESS_TOKEN')
 ACCESS_SECRET = os.environ.get('X_ACCESS_SECRET')
-
+DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL')
+# Discord通知関数
+def send_discord_notify(message, is_error=False):
+    if not DISCORD_WEBHOOK_URL:
+        return
+    
+    color = 0xFF0000 if is_error else 0x00FF00 # 赤 or 緑
+    data = {
+        "embeds": [{
+            "title": "❌ エラー" if is_error else "✅ 投稿成功",
+            "description": message,
+            "color": color,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }]
+    }
+    try:
+        requests.post(DISCORD_WEBHOOK_URL, json=data)
+    except Exception as e:
+        print(f"Discord通知エラー: {e}")
 # X API認証
 try:
     auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
@@ -24,17 +42,14 @@ try:
         access_token_secret=ACCESS_SECRET
     )
 except Exception as e:
+    send_discord_notify(f"API認証エラー: {e}", True)
     print(f"認証エラー: {e}")
-    print("APIキーが正しく設定されているか確認してください。")
-
 # Google Sheets認証
 SHEET_URL = 'https://docs.google.com/spreadsheets/d/1XVucwTYjGeZOsqMSS1o6vm10XZ0wOBOH-TQIUFgpSHE/edit?gid=1702486208#gid=1702486208'
-
 def get_sheet_data():
     """Google Sheetsからデータ取得（公開シート）"""
     try:
         if '/d/' not in SHEET_URL:
-            print("エラー: SHEET_URLが正しく設定されていません。")
             return []
             
         sheet_id = SHEET_URL.split('/d/')[1].split('/')[0]
@@ -61,9 +76,8 @@ def get_sheet_data():
                     })
         return data
     except Exception as e:
-        print(f"シート取得エラー: {e}")
+        send_discord_notify(f"シート取得エラー: {e}", True)
         return []
-
 def should_post(scheduled_time_str):
     """投稿時刻かどうか判定"""
     try:
@@ -74,7 +88,6 @@ def should_post(scheduled_time_str):
             scheduled = datetime.strptime(scheduled_time_str, '%Y-%m-%d %H:%M')
         except ValueError:
              scheduled = datetime.strptime(scheduled_time_str, '%Y/%m/%d %H:%M')
-
         # JSTに変換 (UTC+9)
         JST = timezone(timedelta(hours=9))
         now = datetime.now(JST)
@@ -82,20 +95,14 @@ def should_post(scheduled_time_str):
         # シート日時をJST扱いにする
         scheduled = scheduled.replace(tzinfo=JST)
         
-        print(f"  - シート日時: {scheduled}")
-        print(f"  - 現在日時(JST): {now}")
-        
         diff = abs((now - scheduled).total_seconds())
         if diff < 1800: # 30分
-            print("  => ⭕ 投稿時間です！")
             return True
         else:
-            print(f"  => ❌ 時間外です (差分: {int(diff)}秒)")
             return False
             
-    except Exception as e:
+    except Exception:
         return False
-
 def download_image(url):
     if not url or url.strip() == '': return None
     try:
@@ -111,12 +118,10 @@ def download_image(url):
         return temp_file.name
     except Exception:
         return None
-
 def post_tweet():
     print("🔍 投稿チェック開始 (JST対応版)...")
     data = get_sheet_data()
     if not data: return
-
     for row in data:
         if row['posted'].strip().lower() != 'yes' and should_post(row['date']):
             try:
@@ -137,13 +142,15 @@ def post_tweet():
                 else:
                     response = client.create_tweet(text=text)
                 
-                print(f"✅ 投稿成功！ ID: {response.data['id']}")
-                print("※注意: Google Sheetsの「投稿済み」列を手動で 'Yes' に変更してください。")
+                success_msg = f"投稿しました！\n内容: {text[:50]}..."
+                print(f"✅ {success_msg} ID: {response.data['id']}")
+                send_discord_notify(success_msg, False)
                 return
             except Exception as e:
-                print(f"❌ 投稿エラー: {e}")
+                error_msg = f"投稿失敗: {e}"
+                print(f"❌ {error_msg}")
+                send_discord_notify(error_msg, True)
     
-    print("⏰ 投稿条件に一致する行はありませんでした")
-
+    print("⏰ 投稿なし")
 if __name__ == "__main__":
     post_tweet()
