@@ -146,6 +146,7 @@ def post_thread(parent, reply1, reply2, image_url):
 def main():
     print("🚀 自動投稿チェック開始")
     r = requests.get(SHEET_URL)
+    r.encoding = "utf-8-sig"
     rows = list(csv.reader(r.text.splitlines()))
 
     for idx, row in enumerate(rows[1:], start=2):
